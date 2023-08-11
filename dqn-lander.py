@@ -1,4 +1,4 @@
-# implement lunar lander using DQN
+# solution to gym lunar lander problem using DQN
 
 import gym
 import random
@@ -40,6 +40,7 @@ class DQNagent:
         self.epsilon = 1.0
         self.gamma = .99
         self.batch_size = 64
+        self.tau = 0.005 # update rate
         self.learning_rate = 0.001
         self.epsilon_decay = .996
         self.update_rate = 0.005
@@ -54,10 +55,10 @@ class DQNagent:
 
     def memorize(self, state, action, next_state, reward, done):
         trans = self.transition(torch.tensor([state], dtype=torch.float32),
-                            torch.tensor([[action]], dtype=torch.int64),
-                            torch.tensor([next_state]),
-                            torch.tensor([reward], dtype=torch.float32),
-                            done)
+                                torch.tensor([[action]], dtype=torch.int64),
+                                torch.tensor([next_state]),
+                                torch.tensor([reward], dtype=torch.float32),
+                                done)
         self.memory.append(trans)
 
     def replay(self):
@@ -87,6 +88,13 @@ class DQNagent:
         torch.nn.utils.clip_grad_value_(self.policy_dqn.parameters(), 100)
         self.optimizer.step()
         self.epsilon *= self.epsilon_decay
+    
+    def sync_dqn(self):
+        target_net_state_dict = self.target_dqn.state_dict()
+        policy_net_state_dict = self.policy_dqn.state_dict()
+        for key in policy_net_state_dict:
+            target_net_state_dict[key] = policy_net_state_dict[key] * self.tau + target_net_state_dict[key] * (1-self.tau)
+        self.target_dqn.load_state_dict(target_net_state_dict)
         
     def act(self, state):
         # random
@@ -112,6 +120,7 @@ for episode in range(1, episodes+1):
             break
         agent.memorize(state, action, next_state, reward, done)
         agent.replay()
+        agent.sync_dqn()
         score += reward
         state = next_state
         env.render()
