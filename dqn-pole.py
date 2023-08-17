@@ -1,5 +1,5 @@
 
-#  CartPole solved using DQN with the help of RL tutorial on pytorch official website
+#  CartPole solved using DQN by following RL tutorial on pytorch official website
 
 import gymnasium as gym
 import math
@@ -34,8 +34,6 @@ class ReplayMemory(object):
 
     def push(self, *args):
         trans = Transition(*args)
-        pprint(trans)
-        exit()
         self.memory.append(trans)
 
     def sample(self, batch_size):

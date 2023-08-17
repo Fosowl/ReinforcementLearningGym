@@ -22,8 +22,8 @@ n_states = env.observation_space.shape[0]
 n_actions = env.action_space.n
 
 class DQNagent:
-    class neural_net(nn.Module):
-        def __init__(self, n_actions, n_states):
+    class NeuralNetwork(nn.Module):
+        def __init__(self, n_states, n_actions):
             super().__init__()
             self.l1 = nn.Linear(n_states, 128)
             self.l2 = nn.Linear(128, 128)
@@ -34,7 +34,7 @@ class DQNagent:
             x = F.relu(self.l2(x))
             return self.l3(x)
 
-    def __init__(self, n_actions, n_states):
+    def __init__(self, n_states, n_actions):
         self.n_actions = n_actions
         self.n_states = n_states
         self.epsilon = 1.0
@@ -46,9 +46,9 @@ class DQNagent:
         self.update_rate = 0.005
         self.memory = deque([], maxlen=1000000)
         # policy neural net
-        self.policy_dqn = self.neural_net(n_actions, n_states)
+        self.policy_dqn = self.NeuralNetwork(n_states, n_actions)
         # adjustement neural net
-        self.target_dqn = self.neural_net(n_actions, n_states)
+        self.target_dqn = self.NeuralNetwork(n_states, n_actions)
         self.target_dqn.load_state_dict(self.policy_dqn.state_dict())
         self.optimizer = optim.AdamW(self.policy_dqn.parameters(), lr=self.learning_rate, amsgrad=True)
         self.transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward', 'done'))
@@ -106,7 +106,7 @@ class DQNagent:
         return np.argmax(choices[0].numpy())
 
 episodes = 500
-agent = DQNagent(n_actions, n_states)
+agent = DQNagent(n_states, n_actions)
 
 for episode in range(1, episodes+1):
     state = env.reset()

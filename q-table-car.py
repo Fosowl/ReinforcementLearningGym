@@ -1,5 +1,5 @@
 
-# First RL problem I solved
+# First RL problem I solved using Q-learning
 
 import gym
 import random
