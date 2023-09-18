@@ -61,6 +61,7 @@ for episode in range(1, EPISODES+1):
         state, reward, done, info, _ = env.step(action)
         discrete_state = get_discrete_state(state)
         score += reward
+        print(done)
         # update q table
         if not done:
             #update Q-table
