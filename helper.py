@@ -1,6 +1,7 @@
 
 import matplotlib.pyplot as plt
 import torch
+import datetime
 
 class brainScan:
     def __init__(self, model):
@@ -55,3 +56,8 @@ class plotter:
         durations_t = torch.tensor(values, dtype=torch.float)
         self.ax.plot(durations_t.numpy())
         plt.pause(0.001)  # pause a bit so that plots are updated
+    
+    def save(self):
+        current_datetime = datetime.datetime.now()
+        formatted_date = current_datetime.strftime('%Y-%m-%d_%H-%M-%S')
+        plt.savefig(f"results/plt_{formatted_date}.png")

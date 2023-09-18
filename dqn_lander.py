@@ -88,6 +88,7 @@ class DQNagent:
         torch.nn.utils.clip_grad_value_(self.policy_dqn.parameters(), 100)
         self.optimizer.step()
         self.epsilon *= self.epsilon_decay
+        return 0
     
     def sync_dqn(self):
         target_net_state_dict = self.target_dqn.state_dict()
@@ -99,31 +100,35 @@ class DQNagent:
     def act(self, state):
         # random
         if np.random.rand() <= self.epsilon:
-            return random.randrange(n_actions)
+            return random.randrange(self.n_actions)
         # greedy
         with torch.no_grad():
             choices = self.policy_dqn(torch.tensor([state], dtype=torch.float32))
         return np.argmax(choices[0].numpy())
 
-episodes = 500
-agent = DQNagent(n_states, n_actions)
+def main():
+    episodes = 500
+    agent = DQNagent(n_states, n_actions)
 
-for episode in range(1, episodes+1):
-    state = env.reset()
-    state = state[0]
-    done = False
-    score = 0
-    while True:
-        action = agent.act(state)
-        next_state, reward, done, info, _ = env.step(action)
-        if done:
-            break
-        agent.memorize(state, action, next_state, reward, done)
-        agent.replay()
-        agent.sync_dqn()
-        score += reward
-        state = next_state
-        env.render()
-    print(f"Episode {episode}, score : {score}")
+    for episode in range(1, episodes+1):
+        state = env.reset()
+        state = state[0]
+        done = False
+        score = 0
+        while True:
+            action = agent.act(state)
+            next_state, reward, done, info, _ = env.step(action)
+            if done:
+                break
+            agent.memorize(state, action, next_state, reward, done)
+            agent.replay()
+            agent.sync_dqn()
+            score += reward
+            state = next_state
+            env.render()
+        print(f"Episode {episode}, score : {score}")
 
-env.close()
+    env.close()
+
+if __name__ == "__main__":
+    main()
