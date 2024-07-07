@@ -23,11 +23,11 @@ from helper import *
 # fix mac problem with matplotlib window
 matplotlib.use('Tkagg')
 
-SHOW_EVERY = 50
-RESET_EPSILON_EVERY = 500
+SHOW_EVERY = 40
+RESET_EPSILON_EVERY = 15000
 SAVE_RETURN_EVERY = 10
 SAVE_MODEL_EVERY = 100
-KEEP_ACTION = 5
+KEEP_ACTION = 0
 
 # observation name to index
 obs_names = {
@@ -39,10 +39,10 @@ obs_names = {
     "positionOfJoints2": 5,
     "positionOfJoints3": 6,
     "positionOfJoints4": 7,
-    "jointsAngularSpeed1": 8,
-    "jointsAngularSpeed2": 9,
-    "jointsAngularSpeed3": 10,
-    "jointsAngularSpeed4": 11,
+    "jointsSpeedHipL": 8,
+    "jointsSpeedKneeL": 9,
+    "jointsSpeedHipR": 10,
+    "jointsSpeedKneeR": 11,
     "legsContactWithGround1": 12,
     "legsContactWithGround2": 13,
     "lidar1": 14,
@@ -70,41 +70,42 @@ class PolicyAgent:
         def __init__(self, n_states, n_actions):
             super().__init__()
             self.l1 = nn.Linear(n_states, 64)
-            self.l2 = nn.Linear(64, 128)
-            self.l3 = nn.Linear(128, 128)
-            self.l4 = nn.Linear(128, 128)
-            self.l5 = nn.Linear(128, 128)
-            self.l6 = nn.Linear(128, 128)
-            self.l7 = nn.Linear(128, 64)
-            self.l8 = nn.Linear(64, n_actions)
+            self.l2 = nn.Linear(64, 64)
+            self.l3 = nn.Linear(64, 64)
+            self.l4 = nn.Linear(64, n_actions)
+            self._initialize_weights()
+
+        def _initialize_weights(self):
+            for m in self.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
 
         def forward(self, x):
             x = F.relu(self.l1(x))
             x = F.relu(self.l2(x))
             x = F.relu(self.l3(x))
-            x = F.relu(self.l4(x))
-            x = F.relu(self.l5(x))
-            x = F.relu(self.l6(x))
-            x = F.relu(self.l7(x))
-            x = torch.sigmoid(self.l8(x))
+            x = F.tanh(self.l4(x))
             return x
     
     def __init__(self, n_actions, n_states, scanner=False, pretrained=False):
         # initialize all variables
         self.n_actions = n_actions
         self.n_states = n_states
-        self.epsilon = 0.9 if pretrained == False else 0.0
-        self.epsilon_decay = .998
-        self.learning_rate = 0.001
-        self.gamma = .96
+        self.epsilon = 0.8 if pretrained == False else 0.0
+        self.epsilon_decay = .9996
+        self.learning_rate = 1e-4
+        self.gamma = .99
         self.rewards = 0
         self.pretrained = pretrained
         self.transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward', 'noise', 'done'))
-        self.batch_size = 32
-        self.memory = deque([], maxlen=16000)
+        self.batch_size = 64
+        self.memory = deque([], maxlen=1000000)
         self.model = self.NeuralNetwork(n_states, n_actions)
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate, amsgrad=True)
         self.train_loss = 0
+        self.past_grads = []
         if scanner:
             self.scanner = brainScan(self.model)
         if pretrained:
@@ -128,31 +129,76 @@ class PolicyAgent:
     def save(self):
         torch.save(self.model.state_dict(), 'checkpoint_actor.pth')
 
+    def detect_exploding_gradients(self, threshold=1000):
+        exploding_gradients = False
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                if param.grad is not None:
+                    gradient_norm = torch.norm(param.grad)
+                    if gradient_norm > threshold:
+                        print(f"Exploding gradient detected in parameter: {name}")
+                        print(f"Gradient norm: {gradient_norm}")
+                        exploding_gradients = True
+                        exit()
+        return exploding_gradients
+
+    def detect_vanishing_gradients(self, threshold=1e-5):
+        count_vanished = 0
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                if param.grad is not None:
+                    gradient_norm = torch.norm(param.grad)
+                    if gradient_norm < threshold:
+                        count_vanished += 1
+        percent_vanished = count_vanished / len(list(self.model.parameters()))
+        if percent_vanished > 0.5:
+            print(f"Vanishing gradients detected in more than 50% of parameters")
+            exit()
+        return False
+
+    
+    def get_avg_gradients(self):
+        avg_gradients = []
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                avg_gradients.append(round(param.grad.mean().item(), 2))
+        return avg_gradients
+
     def learnBatch(self):
+        if len(self.memory) < self.batch_size:
+            return 0
         # update parameters from batch and optimize
         sample_count = 0
         # discount return (reward sum)
         G_t = torch.tensor([0], dtype=torch.float32)
         # policy
         policy_loss = []
-        for transition in reversed(self.memory):
+        memories = list(self.memory)
+        mem_chunks = [memories[i:i+self.batch_size] for i in range(0, len(memories), self.batch_size)]
+        print(f"Learning from {len(memories)} memory transition...")
+        for transition in mem_chunks[random.randint(0, len(mem_chunks)-1)]:
             actions_choice = self.model(transition.state) + transition.noise
             r = transition.reward
             G_t = r + self.gamma * G_t
-            log_action_probs = torch.log(torch.clamp(actions_choice, min=1e-5, max=1-1e-5))
-            tmp = -log_action_probs * G_t
-            policy_loss.append(tmp)
+            log_action_probs = torch.log(torch.clamp(actions_choice, min=1e-3, max=1-1e-3))
+            prob = -log_action_probs * G_t
+            policy_loss.append(prob)
             sample_count += 1
         self.optimizer.zero_grad()
         policy_loss = torch.cat(policy_loss).sum()
         policy_loss.backward()
+        gradients_diff = sum(self.get_avg_gradients()) - sum(self.past_grads)
+        #print(f"Backprop gradients diff: {round(gradients_diff, 2)}")
+        self.past_grads = self.get_avg_gradients()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10)
         self.optimizer.step()
-        self.resetBatch()
+        self.detect_exploding_gradients()
+        self.detect_vanishing_gradients()
         return G_t.item()
 
-    def resetBatch(self):
+    def resetShortTermMemory(self):
         # reset current memory batch to prepare for next one
-        self.memory = deque([], maxlen=1600)
+        self.memory = deque([], maxlen=1000000)
 
     def act(self, state, use_noise=True):
         with torch.no_grad():
@@ -167,41 +213,12 @@ class PolicyAgent:
         return motors, noise
 
 def reward_good_posture(state):
-    # Define target torso angle for an upright posture (adjust as needed)
-    target_torso_angle = 0.0
-    torso_angle = state[obs_names["hullAngleSpeed"]]
-    angle_deviation = abs(torso_angle - target_torso_angle) * (180/math.pi)
-    punish = (math.exp(angle_deviation) / (180/math.pi) * 0.001) 
-    reward = 1 - punish 
-    if reward > 1:
-        reward = 0.2
-    if reward < -1:
-        reward = -0.2
+    # Define target torso angle for an upright posture
+    reward = -abs(state[obs_names['hullAngleSpeed']]) * 0.01
     return reward
 
 def have_opposite_signs(a, b):
     return (a < 0 and b > 0) or (a > 0 and b < 0)
-
-def reward_coordinated_walk(state):
-    reward = 0.0
-    penalty = 0.2
-    join1 = state[obs_names["jointsAngularSpeed1"]]
-    join2 = state[obs_names["jointsAngularSpeed2"]]
-    join3 = state[obs_names["jointsAngularSpeed3"]]
-    join4 = state[obs_names["jointsAngularSpeed4"]]
-    if have_opposite_signs(join1, join3):
-        reward += penalty
-    else:
-        reward -= penalty
-    if have_opposite_signs(join2, join4):
-        reward += penalty
-    else:
-        reward -= penalty
-    if join1 < 0 and join3 < 0:
-        reward -= penalty * 2
-    if join2 < 0 and join4 < 0:
-        reward -= penalty * 2
-    return reward
 
 def demonstrate(env, agent):
     state = env.reset()
@@ -213,22 +230,19 @@ def demonstrate(env, agent):
     print("simulating...")
     speeds = []
     while steps < 500:
-        action, _ = agent.act(state, False)
+        action, _ = agent.act(state, use_noise=False)
         next_state, reward, done, info, _ = env.step(action)
+        print(f"Reward : {round(reward, 2)}, Action: {action}")
         env.render()
-        print("base reward : ", reward)
-        print("coordination : ", reward_coordinated_walk(state))
-        print("posture reward : ", reward_good_posture(state))
         if done:
             print("dead")
             break
         steps += 1
         speeds.append(state[1])
-        if sum(speeds) / len(speeds) <= 0.0 and steps > 50:
-            break
         score += reward
         state = next_state
     print(f"Finished after {steps} steps, got score {score}")
+    time.sleep(1)
 
 abort_training = False
 
@@ -251,18 +265,13 @@ def training(episodes, env, agent, plotting, scan, env_demo = None):
         steps = 0
         action = agent.act(state)
         if episode % SHOW_EVERY == 0 and env_demo != None:
-            print(f"showing agent performance at episode : {episode}")
+            print(f"Showing agent performance at episode : {episode}")
             demonstrate(env_demo, agent)
         speeds = []
-        while steps < math.log(episode)*100+1:
-            if steps % KEEP_ACTION == 0:
-                action, noise = agent.act(state)
+        while steps < 600:
+            action, noise = agent.act(state, use_noise=True)
             next_state, reward, done, info, _ = env.step(action)
             speeds.append(state[1])
-            if sum(speeds) / len(speeds) <= 0.0 and steps > 50:
-                break
-            reward += reward_good_posture(state)
-            reward += reward_coordinated_walk(state)
             agent.memorizeTransition(state, action, next_state, reward, noise, done)
             if done:
                 break
@@ -271,8 +280,9 @@ def training(episodes, env, agent, plotting, scan, env_demo = None):
             state = next_state
         G = agent.learnBatch()
         agent.epsilon *= agent.epsilon_decay
+        agent.resetShortTermMemory()
         returns.append(score)
-        print(f"Episode {episode}, Score : {round(score, 2)}, Steps : {steps}, epsilon : {agent.epsilon}")
+        print(f"Learning memory... {episode}/{episodes}, avg G: {G} Epsilon : {round(agent.epsilon, 2)}")
         if episode % SAVE_RETURN_EVERY == 0:
             returns.append(G)
         if episode > SAVE_MODEL_EVERY and episode % SAVE_MODEL_EVERY == 0:
@@ -289,13 +299,15 @@ def training(episodes, env, agent, plotting, scan, env_demo = None):
 def main():
     training_mode = True
     plotting = None
+    plotting = plotter()
     env = gym.make("BipedalWalker-v3", hardcore=False)
     env_demo = gym.make("BipedalWalker-v3", hardcore=False, render_mode="human")
     n_states = env.observation_space.shape[0]
     n_actions = env.action_space.shape[0]
-    agent = PolicyAgent(n_actions, n_states, False, pretrained=(training_mode == False))
-    scan = brainScan(agent.model)
-    episodes = 10000
+    agent = PolicyAgent(n_actions, n_states, scanner=False, pretrained=(training_mode == False))
+    scan = None
+    scan = brainScan(agent.model) 
+    episodes = 3000
     if training_mode:
         training(episodes, env, agent, plotting, scan, env_demo)
     else:

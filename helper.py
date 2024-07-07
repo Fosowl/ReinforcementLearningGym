@@ -6,7 +6,7 @@ import datetime
 class brainScan:
     def __init__(self, model):
         self.activation = {}
-        self.layer_count = 4
+        self.layer_count = 7
         self.layers = [None] * self.layer_count
         model.l1.register_forward_hook(self.get_activation('l1'))
         model.l2.register_forward_hook(self.get_activation('l2'))
@@ -39,6 +39,8 @@ class brainScan:
         hidden_activations[3] = self.activation['l4'][0]
         # Normalize activations to grayscale values (0-255)
         for i in range(0, self.layer_count):
+            if hidden_activations[i] is None:
+                continue
             normalized_activations[i] = (hidden_activations[i] - hidden_activations[i].min()) / (
                 hidden_activations[i].max() - hidden_activations[i].min()
             ) * 255
