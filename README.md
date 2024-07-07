@@ -3,7 +3,7 @@ Solving some OpenAI Gym problems using reinforcement learning.
 
 ### Walker
 
-coming up ...
+still to be fixed ...
 
 ### Lander
 
