@@ -1,10 +1,6 @@
 # ReinforcementLearningGym
 Solving some OpenAI Gym problems using reinforcement learning.
 
-### Walker
-
-still to be fixed ...
-
 ### Lander
 
 ![alt text](./assets/lander.gif)
@@ -16,3 +12,7 @@ still to be fixed ...
 ### Pole
 
 ![alt text](./assets/pole.gif)
+
+### Walker
+
+Not working (Vanishing Gradient Problem), have yet to figure out why
